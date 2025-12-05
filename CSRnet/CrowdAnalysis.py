@@ -10,8 +10,9 @@ def run_csrnet(img):
 
 # YOLOv8 implementation (bad for crowd, good for few people)
 def run_yolo(img):
-    model = YOLO("yolov8m.pt")  # medium model
-    results = model(img, imgsz=960) # 960 input resolution
+    model = YOLO("yolov8s.pt")  # small model
+    # 1280x736 input resolution, keep people at confidential value at 10% and no overlapping less than 70%
+    results = model(img, save=True, imgsz=(736, 1280), conf=0.1, iou=0.7, classes=[0]) 
     person_count = 0
 
     for result in results:
@@ -19,13 +20,13 @@ def run_yolo(img):
             for cls in result.boxes.cls:
                 if int(cls) == 0:   # class 0 = person in COCO
                     person_count += 1
-
+    
     print("Detected People:", person_count)
     return person_count
 
 def choose_model(img):
-    model = YOLO("yolov8m.pt")
-    results = model(img, imgsz=640)
+    model = YOLO("yolov8s.pt")  # small model for bound box area estimation
+    results = model(img, imgsz=480)
 
     img_data = cv2.imread(img)
     H, W = img_data.shape[:2]
@@ -64,4 +65,4 @@ def choose_model(img):
     else:
         return run_csrnet(img)
 
-choose_model("0239.jpg")
+choose_model("test2.jpeg")
