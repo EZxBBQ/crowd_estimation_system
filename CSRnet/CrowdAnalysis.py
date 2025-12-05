@@ -18,7 +18,7 @@ def run_yolo(img):
     for result in results:
         if result.boxes is not None:
             for cls in result.boxes.cls:
-                if int(cls) == 0:   # class 0 = person in COCO
+                if int(cls) == 0:   # class 0 = person
                     person_count += 1
     
     print("Detected People:", person_count)
