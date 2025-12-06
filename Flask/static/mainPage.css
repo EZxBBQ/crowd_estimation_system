@@ -1,0 +1,55 @@
+/* Main dark gradient */
+.bg-dark-main {
+    background: radial-gradient(circle at top, #0f172a, #020617);
+}
+
+/* Soft animated glow in background */
+.bg-animated {
+    position: fixed;
+    inset: 0;
+    background:
+        radial-gradient(circle at 20% 30%, rgba(56,189,248,0.15), transparent 40%),
+        radial-gradient(circle at 80% 70%, rgba(168,85,247,0.12), transparent 40%);
+    animation: drift 12s ease-in-out infinite alternate;
+    z-index: 0;
+}
+
+@keyframes drift {
+    from { transform: translateY(0); }
+    to   { transform: translateY(-20px); }
+}
+
+/* Accent title */
+.text-dark-accent {
+    color: #38bdf8;
+}
+
+/* Glass-style cards */
+.dashboard-card {
+    background: rgba(15, 23, 42, 0.88);
+    border-radius: 18px;
+    padding: 32px;
+    box-shadow: 0 10px 25px rgba(0, 0, 0, 0.6);
+    border: 1px solid rgba(148, 163, 184, 0.12);
+    backdrop-filter: blur(6px);
+    transition: transform 0.25s ease, box-shadow 0.25s ease;
+}
+
+.dashboard-card:hover {
+    transform: translateY(-6px) scale(1.01);
+    box-shadow: 0 18px 40px rgba(0, 0, 0, 0.8);
+}
+
+/* Subtle pulse for live status */
+.pulse {
+    animation: pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.6; }
+}
+
+button {
+    box-shadow: 0 0 15px rgba(168, 85, 247, 0.35);
+}

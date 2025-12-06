@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Crowd Estimation Dashboard</title>
+
+    <!-- Tailwind CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+
+    <!-- Custom Dark Styling -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='mainPage.css') }}">
+</head>
+
+<body class="min-h-screen flex items-center justify-center bg-dark-main">
+
+    <!-- Animated background -->
+    <div class="bg-animated"></div>
+
+    <div class="relative z-10 max-w-5xl w-full px-6">
+
+        <h1 class="text-3xl font-bold text-center mb-10 text-dark-accent tracking-wide">
+            Crowd Estimation Dashboard
+        </h1>
+
+        <!-- TOP ROW: Widget 1 & 2 -->
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-8 mb-10">
+
+            <!-- ✅ Widget 1: Status -->
+            <div class="dashboard-card text-center">
+                <p class="text-xs text-gray-400 mb-2 uppercase tracking-widest">System Status</p>
+                <h2 class="text-4xl font-bold text-green-400 pulse" id="statusText">
+                    {{ crowdLevel }}
+                </h2>
+            </div>
+
+            <!-- ✅ Widget 2: People Count -->
+            <div class="dashboard-card text-center">
+                <p class="text-xs text-gray-400 mb-2 uppercase tracking-widest">People Detected</p>
+                <h2 class="text-5xl font-bold text-blue-400">
+                    {{ peopleCount }}
+                </h2>
+            </div>
+
+        </div>
+
+        <!-- ✅ CENTERED Widget 3 -->
+        <div class="flex justify-center">
+            <div class="dashboard-card text-center w-full md:w-1/2">
+
+                <p class="text-xs text-gray-400 mb-2 uppercase tracking-widest">
+                    Maximum Allowed People
+                </p>
+
+                <!-- Display mode -->
+                <div id="maxDisplay" class="text-4xl font-bold text-purple-400 mb-4">
+                    {{ maxPeople }}
+                </div>
+
+                <!-- Edit mode (hidden by default) -->
+                <input
+                    id="maxInput"
+                    type="number"
+                    class="hidden w-full text-center text-3xl rounded-lg p-2 bg-slate-800 text-white outline-none border border-purple-500 mb-4"
+                />
+
+                <button
+                    id="editBtn"
+                    class="px-6 py-2 rounded-lg bg-purple-600 hover:bg-purple-500
+                           text-white font-semibold transition-all duration-200">
+                    Modify Limit
+                </button>
+
+            </div>
+        </div>
+
+    </div>
+
+    <!-- ✅ JS FOR SEAMLESS EDIT -->
+    <script>
+        const editBtn = document.getElementById("editBtn");
+        const maxDisplay = document.getElementById("maxDisplay");
+        const maxInput = document.getElementById("maxInput");
+
+        editBtn.addEventListener("click", () => {
+            maxInput.value = maxDisplay.innerText;
+            maxDisplay.classList.add("hidden");
+            maxInput.classList.remove("hidden");
+            maxInput.focus();
+        });
+
+        maxInput.addEventListener("blur", applyNewLimit);
+        maxInput.addEventListener("keydown", (e) => {
+            if (e.key === "Enter") applyNewLimit();
+        });
+
+        function applyNewLimit() {
+            if (maxInput.value !== "") {
+                maxDisplay.innerText = maxInput.value;
+            }
+            maxInput.classList.add("hidden");
+            maxDisplay.classList.remove("hidden");
+        }
+    </script>
+
+</body>
+</html>
