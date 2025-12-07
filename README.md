@@ -41,9 +41,35 @@ Data dari semua alat dikirim tanpa kabel (Mesh Network) ke satu Laptop Server un
 
 ---
 
-## 🚀 Cara Menjalankan
+## 🚀 Cara Instalasi & Menjalankan
 
-### 1. Siapkan Server (Laptop)
-Pastikan Python sudah terinstall, lalu install library yang dibutuhkan:
-```bash
-pip install flask torch torchvision opencv-python
+### Tahap 1: Setup Server (Laptop)
+1.  Clone repository ini.
+2.  Install dependencies Python:
+    ```bash
+    pip install flask torch torchvision opencv-python
+    ```
+3.  Jalankan server:
+    ```bash
+    cd backend
+    python app.py
+    ```
+4.  **Catat IP Address Laptop** (Contoh: `192.168.1.10`). Pastikan Laptop dan Central Node terhubung ke Wi-Fi yang sama (atau Hotspot HP).
+
+### Tahap 2: Flash Firmware (ESP32)
+1.  Buka folder `firmware` di Arduino IDE.
+2.  **Central Node:**
+    * Buka `central_node.ino`.
+    * Ubah `String server_url = "http://192.168.1.10:5000/upload";` sesuai IP Laptop.
+    * Upload ke ESP32 Central.
+3.  **Camera Node:**
+    * Upload `camera_node.ino` ke ESP32-CAM.
+4.  **Sensor Node:**
+    * Upload `sensor_node.ino` ke ESP32 Sensor.
+
+### Tahap 3: Operasional
+1.  Nyalakan Power Supply.
+2.  Tunggu sekitar 10-30 detik hingga jaringan Mesh terbentuk (LED indikator biasanya berkedip).
+3.  Pantau hasil di Dashboard: `http://localhost:5000`.
+
+---
