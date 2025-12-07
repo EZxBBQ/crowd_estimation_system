@@ -1,68 +1,120 @@
-from lwcc import LWCC
 from ultralytics import YOLO
-import cv2
+import numpy
 
-# CSRnet implementation (bad for few people, good for crowd)
-def run_csrnet(img):
-    count = LWCC.get_count(img, model_name = "CSRNet", model_weights="SHA")
-    print("Predicted Count:", count)
-    return int(count)
+img_height = 736
+img_width = 1280
+section_amount = 4
+
+
 
 # YOLOv8 implementation (bad for crowd, good for few people)
-def run_yolo(img):
-    model = YOLO("yolov8s.pt")  # small model
+def RunYolo(img):
+    detectionModel = YOLO("yolov8s.pt")  # small detection model
+    poseModel = YOLO("yolov8s-pose.pt")  # nano pose model
+
     # 1280x736 input resolution, keep people at confidential value at 10% and no overlapping less than 70%
-    results = model(img, save=True, imgsz=(736, 1280), conf=0.1, iou=0.7, classes=[0]) 
-    person_count = 0
+    detectionResults = detectionModel(img, save=True, imgsz=(img_height, img_width), conf=0.1, iou=0.7) 
+    poseResults = poseModel(img, save=True, imgsz=(img_height, img_width), conf=0.4, iou=0.7, classes=[0])
+    AnalyzeResults(detectionResults, poseResults)
 
-    for result in results:
-        if result.boxes is not None:
-            for cls in result.boxes.cls:
-                if int(cls) == 0:   # class 0 = person
-                    person_count += 1
+
+
+# get crowd density information from the image 
+def AnalyzeResults(detectionResults, poseResults):
+    # separate image into sections
+    sectionHeight = img_height // section_amount
+    sectionWidth = img_width // section_amount
+    sections = [[0 for _ in range(section_amount)] for _ in range(section_amount)]
+
+    # find centroid of each detected person
+    centroids = []
+    coordinates = detectionResults[0].boxes.xyxy.cpu().numpy() 
+    classes = detectionResults[0].boxes.cls.cpu().numpy()
+    for box, cls_id in zip(coordinates, classes):
+        if int(cls_id) == 0:  # class 0 is person
+            x1, y1, x2, y2 = box 
+            cx = (x1 + x2) / 2 
+            cy = (y1 + y2) / 2 
+            centroids.append((cx, cy))
     
-    print("Detected People:", person_count)
-    return person_count
+    # count people detected in each section
+    for cx, cy in centroids:
+        row = int(cy // sectionHeight)
+        col = int(cx // sectionWidth)
+        row = min(row, section_amount - 1)
+        col = min(col, section_amount - 1)
 
-def choose_model(img):
-    model = YOLO("yolov8s.pt")  # small model for bound box area estimation
-    results = model(img, imgsz=480)
+        sections[row][col] += 1
 
-    img_data = cv2.imread(img)
-    H, W = img_data.shape[:2]
-    img_area = H * W
+    # classify posture of each detected person
+    standing = 0
+    sitting = 0
+    if poseResults[0].keypoints is not None:
+        data = poseResults[0].keypoints.data.cpu().numpy()
+        for kp in data:
+            h_l = kp[11]
+            h_r = kp[12]
+            k_l = kp[13]
+            k_r = kp[14]
+            a_l = kp[15]
+            a_r = kp[16]
 
-    total_area = 0.0
-    yolo_count = 0
+            if min(h_l[2], h_r[2], k_l[2], k_r[2], a_l[2], a_r[2]) < 0.4:
+                sitting += 1
+                continue
 
-    for result in results:
-        if result.boxes is not None:
-            boxes = result.boxes.xyxy.cpu().numpy()
-            classes = result.boxes.cls.cpu().numpy()
-            confs = result.boxes.conf.cpu().numpy()
+            hip_y = (h_l[1] + h_r[1]) / 2
+            knee_y = (k_l[1] + k_r[1]) / 2
+            ankle_y = (a_l[1] + a_r[1]) / 2
 
-            for box, cls, conf in zip(boxes, classes, confs):
-                if int(cls) == 0 and conf > 0.5:
-                    x1, y1, x2, y2 = box
+            leg = ankle_y - hip_y
+            thigh = knee_y - hip_y
 
-                    x1 = max(0, min(W - 1, x1))
-                    x2 = max(0, min(W - 1, x2))
-                    y1 = max(0, min(H - 1, y1))
-                    y2 = max(0, min(H - 1, y2))
+            if leg <= 0:
+                sitting += 1
+                continue
 
-                    area = max(0.0, (x2 - x1) * (y2 - y1))
-                    total_area += area
-                    yolo_count += 1
+            leg_norm = leg / img_height
+            ratio = thigh / leg
 
-    if yolo_count == 0:
-        return run_csrnet(img)
+            if leg_norm > 0.2 and ratio >= 0.6:
+                standing += 1
+            else:
+                sitting += 1
 
-    mean_box_ratio = (total_area / yolo_count) / img_area
-    print("mean_box_ratio:", mean_box_ratio)
 
-    if mean_box_ratio > 0.015:
-        return run_yolo(img)
+    level = LevelEvaluation(sections, standing, sitting)
+    print(level)
+    print(standing, sitting)
+
+
+
+# evaluate crowd density level based on section data and posture information
+def LevelEvaluation(sections, standing, sitting):
+    total = 0
+    peak = 0
+    for r in range(section_amount):
+        for c in range(section_amount):
+            v = sections[r][c]
+            total += v
+            if v > peak:
+                peak = v
+
+    if total == 0:
+        return "LOW"
+
+    standingRatio = standing / max(standing + sitting, 1)
+    score = (0.6 * peak + 0.4 * (total / 4)) * (1.0 + 0.5 * standingRatio)
+
+    if score < 2:
+        return "LOW"
+    elif score < 5:
+        return "MEDIUM"
+    elif score < 8:
+        return "DENSE"
     else:
-        return run_csrnet(img)
+        return "FULL"
 
-choose_model("test2.jpeg")
+
+
+RunYolo("test2.jpeg")
