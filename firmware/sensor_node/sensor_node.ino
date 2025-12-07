@@ -8,8 +8,8 @@
 #include <ArduinoJson.h>
 
 // --- KONFIGURASI MESH ---
-#define   MESH_PREFIX     "IoT_Crowd_Net"
-#define   MESH_PASSWORD   "kelompok26"
+#define   MESH_PREFIX     "CrowdMesh"
+#define   MESH_PASSWORD   "meshpassword"
 #define   MESH_PORT       5555
 
 // --- KONFIGURASI PIN ---
