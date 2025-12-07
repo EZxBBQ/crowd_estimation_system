@@ -1,0 +1,89 @@
+{% macro render_system(id, systemName, crowdLevel, peopleCount, maxPeople) %}
+<div class="system-card" data-system-id="{{ id }}">
+
+    <!-- TOP ROW: Status + system info -->
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+        <!-- Widget 1: Status -->
+        <div class="dashboard-card text-center">
+            <p class="text-xs text-gray-400 mb-2 uppercase tracking-widest">
+                System Status
+            </p>
+            <h2 class="text-4xl font-bold text-green-400 pulse">
+                {{ crowdLevel }}
+            </h2>
+        </div>
+
+        <!-- System Name -->
+         <div class="dashboard-card flex flex-col items-center justify-center">
+            <h2 class="text-2xl font-semibold text-white flex items-center justify-center">
+                {{ systemName }}
+            </h2>
+            <h2 class="text-sm font-light text-gray-400 flex items-center justify-center">
+                ID: {{ id }}
+            </h2>
+        </div>
+    </div>
+
+    <!-- BUTTOM ROW: People Count + Max Limit -->
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+        <!-- Widget 2: People Count -->
+        <div class="dashboard-card text-center">
+            <p class="text-xs text-gray-400 mb-2 uppercase tracking-widest">
+                People Detected
+            </p>
+            <h2 class="text-5xl font-bold text-blue-400">
+                {{ peopleCount }}
+            </h2>
+        </div>
+
+        <!-- Widget 3: Max Limit -->
+        <div class="dashboard-card text-center">
+            <p class="text-xs text-gray-400 mb-2 uppercase tracking-widest">
+                Maximum Allowed People
+            </p>
+
+            <div class="max-people-container mb-4 flex justify-center" data-system-id="{{ id }}">
+                <div class="max-people-display text-4xl font-bold text-purple-400">
+                    {{ maxPeople }}
+                </div>
+                <input 
+                    type="number" 
+                    class="max-people-input text-4xl font-bold text-purple-400 bg-gray-700 border-2 border-purple-500 rounded-lg px-2 py-1 text-center hidden w-32"
+                    value="{{ maxPeople }}"
+                    min="1">
+            </div>
+
+            <div class="max-people-buttons">
+                <button
+                    class="modify-limit-btn px-6 py-2 rounded-lg bg-purple-600 hover:bg-purple-500
+                    text-white font-semibold transition-all duration-200"
+                    data-system-id="{{ id }}">
+                    Modify Limit
+                </button>
+                <div class="edit-buttons hidden">
+                    <button
+                        class="save-limit-btn px-4 py-2 rounded-lg bg-green-600 hover:bg-green-500
+                        text-white font-semibold transition-all duration-200 mr-2">
+                        Save
+                    </button>
+                    <button
+                        class="cancel-limit-btn px-4 py-2 rounded-lg bg-gray-600 hover:bg-gray-500
+                        text-white font-semibold transition-all duration-200">
+                        Cancel
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Detail Button -->
+        <div class="flex justify-center">
+            <button
+            class="px-8 min-h-0 rounded-lg bg-gray-700 hover:bg-gray-600
+            text-white font-semibold transition-all duration-200">
+                View Details
+            </button>
+        </div>
+
+</div>
+{% endmacro %}

@@ -1,4 +1,4 @@
-from flask import Flask, render_template
+from flask import Flask, render_template, jsonify, request
 from enum import Enum
 
 app = Flask(__name__)
@@ -6,14 +6,62 @@ class CrowdLevel(Enum):
     LOW = "low"
     MEDIUM = "medium"
     DENSE = "dense"
-    FULL = "full"
+    FULL = "full" 
+
+Systems = [
+    {"id" : 1, "systemName": "System 1", "crowdLevel": CrowdLevel.LOW.name, "peopleCount": 10, "maxPeople": 50},
+    {"id" : 2, "systemName": "System 2", "crowdLevel": CrowdLevel.MEDIUM.name, "peopleCount": 23, "maxPeople": 40},
+    {"id" : 3, "systemName": "System 3", "crowdLevel": CrowdLevel.DENSE.name, "peopleCount": 35, "maxPeople": 45},
+    {"id" : 4, "systemName": "System 4", "crowdLevel": CrowdLevel.FULL.name, "peopleCount": 5, "maxPeople": 30}
+]
 
 @app.route("/")
 def mainPage():
-    crowd_level = CrowdLevel.LOW.value
-    people_count = 0
-    max_people = 50  
-    return render_template("mainPage.html", crowdLevel =crowd_level, peopleCount=people_count, maxPeople=max_people)
+    return render_template("mainPage.html", systems=Systems)
+
+@app.route("/api/systems/<int:system_id>", methods=["PATCH"])
+def update_system(system_id):
+    """
+    Expected JSON body: {
+        "crowdLevel": "LOW"|"MEDIUM"|"DENSE"|"FULL",
+        "peopleCount": int,
+        "maxPeople": int
+    }
+    """
+    system = next((s for s in Systems if s["id"] == system_id), None)
+    
+    if not system:
+        return jsonify({"error": "System not found"}), 404
+    
+    data = request.get_json()
+    
+    # Update allowed fields only
+    if "crowdLevel" in data:
+        # Validate crowd level
+        valid_levels = [level.name for level in CrowdLevel]
+        if data["crowdLevel"].upper() in valid_levels:
+            system["crowdLevel"] = data["crowdLevel"].upper()
+        else:
+            return jsonify({"error": f"Invalid crowdLevel. Must be one of: {valid_levels}"}), 400
+    
+    if "peopleCount" in data:
+        try:
+            system["peopleCount"] = int(data["peopleCount"])
+        except ValueError:
+            return jsonify({"error": "peopleCount must be an integer"}), 400
+    
+    if "maxPeople" in data:
+        try:
+            system["maxPeople"] = int(data["maxPeople"])
+        except ValueError:
+            return jsonify({"error": "maxPeople must be an integer"}), 400
+    
+    return jsonify(system), 200
+
+@app.route("/api/systems", methods=["GET"])
+def get_systems():
+    """Get all systems data"""
+    return jsonify(Systems), 200
 
 if __name__ == "__main__":
     app.run(debug=True)
