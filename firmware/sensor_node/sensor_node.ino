@@ -56,6 +56,12 @@ void readSensors() {
   int inState = digitalRead(IR_IN_PIN);
   int outState = digitalRead(IR_OUT_PIN);
 
+  // Tampilkan status sensor di Serial Monitor
+  Serial.print("IR_IN_PIN: ");
+  Serial.print(inState == HIGH ? "HIGH" : "LOW");
+  Serial.print(", IR_OUT_PIN: ");
+  Serial.println(outState == HIGH ? "HIGH" : "LOW");
+
   // Logika Sederhana (Active LOW = Ada Orang)
   // Cek Orang Masuk
   if (lastInState == HIGH && inState == LOW) {
@@ -100,6 +106,8 @@ void setup() {
 
   userScheduler.addTask( taskReadSensors );
   taskReadSensors.enable();
+
+  Serial.println("Sensor node aktif dan siap digunakan!");
 }
 
 void loop() {
