@@ -6,6 +6,7 @@
 #include <painlessMesh.h>
 #include <HTTPClient.h>
 #include <WiFi.h>
+#include <base64.h>
 
 // --- KONFIGURASI MESH (Harus sama persis dengan node lain) ---
 #define   MESH_PREFIX     "CrowdMesh"
@@ -32,7 +33,7 @@ void sendDataTest(void* params)
   while (true)
   {
     // kirim data (dummy) ke flask server
-    String dummyImage = "dummy_link";
+    String dummyImage = "test2.jpeg";
     int peopleCount = 50;
 
     String jsonBody = "{";
@@ -87,6 +88,14 @@ void setup() {
   mesh.setRoot(true);
   mesh.setContainsRoot(true);
 
+  xTaskCreate(
+    sendDataTest,
+    "SendDataTest",
+    4096,
+    NULL,
+    1,
+    NULL
+  );
 }
 
 void loop() {

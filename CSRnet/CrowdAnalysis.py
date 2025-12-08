@@ -15,7 +15,8 @@ def RunYolo(img):
     # 1280x736 input resolution, keep people at confidential value at 10% and no overlapping less than 70%
     detectionResults = detectionModel(img, save=True, imgsz=(img_height, img_width), conf=0.1, iou=0.7) 
     poseResults = poseModel(img, save=True, imgsz=(img_height, img_width), conf=0.4, iou=0.7, classes=[0])
-    AnalyzeResults(detectionResults, poseResults)
+    level, standing, sitting = AnalyzeResults(detectionResults, poseResults)
+    return level, standing, sitting
 
 
 
@@ -85,7 +86,7 @@ def AnalyzeResults(detectionResults, poseResults):
 
     level = LevelEvaluation(sections, standing, sitting)
     print(level)
-    print(standing, sitting)
+    return level, standing, sitting
 
 
 
@@ -115,6 +116,3 @@ def LevelEvaluation(sections, standing, sitting):
     else:
         return "FULL"
 
-
-
-RunYolo("test2.jpeg")
