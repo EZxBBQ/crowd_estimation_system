@@ -1,6 +1,6 @@
 # IoT Crowd Estimation System
 
-Proyek ini adalah sistem penghitung jumlah orang otomatis di dalam ruangan.
+Proyek ini merupakan sistem penghitung jumlah orang otomatis di dalam ruangan.
 Sistem ini menggabungkan dua metode:
 1. **Sensor IR:** Menghitung jumlah orang keluar-masuk (Real Count).
 2. **Kamera (AI):** Memotret ruangan untuk mengetahui seberapa padat isinya menggunakan kecerdasan buatan (CSRNet).
