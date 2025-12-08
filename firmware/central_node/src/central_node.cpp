@@ -87,14 +87,6 @@ void setup() {
   mesh.setRoot(true);
   mesh.setContainsRoot(true);
 
-  xTaskCreate(
-    sendDataTest,
-    "SendDataTask",
-    4096,
-    NULL,
-    1,
-    NULL
-  );
 }
 
 void loop() {
