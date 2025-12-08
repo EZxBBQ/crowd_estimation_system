@@ -1,19 +1,17 @@
 #include <Arduino.h>
 #include "esp_camera.h"
 #include <painlessMesh.h>
+#include <base64.h>
 
-
-// --- KONFIGURASI MESH ---
-#define   MESH_PREFIX     "CrowdMesh"   // Nama mesh
-#define   MESH_PASSWORD   "meshpassword" // Password mesh
+#define   MESH_PREFIX     "CrowdMesh"
+#define   MESH_PASSWORD   "meshpassword"
 #define   MESH_PORT       5555
+#define   FRAME_DELAY     100
+#define   CAMERA_MODEL_AI_THINKER 
 
 Scheduler userScheduler;
 painlessMesh mesh;
-uint32_t centralNodeId = 0; // Set di central node
-
-// --- PENGATURAN WAKTU ---
-unsigned long timerDelay = 10000; // Ambil gambar tiap 10 detik
+uint32_t centralNodeId = 0;
 unsigned long lastTime = 0;
 
 // --- PIN DEFINITION FOR AI THINKER MODEL ---
@@ -34,54 +32,42 @@ unsigned long lastTime = 0;
 #define HREF_GPIO_NUM     23
 #define PCLK_GPIO_NUM     22
 
-void sendImage() {
-  camera_fb_t * fb = NULL;
-  // Ambil Gambar
-  fb = esp_camera_fb_get(); 
+void sendFrame() {
+  camera_fb_t * fb = esp_camera_fb_get();
   if(!fb) {
     Serial.println("Camera capture failed");
     return;
   }
-  // Kirim notifikasi ke central node via mesh (bukan gambar langsung)
   if (centralNodeId != 0) {
-    mesh.sendSingle(centralNodeId, "Image captured");
-    Serial.println("Image notification sent to central node via mesh!");
-  } else {
-    Serial.println("Central node ID not set!");
+    String encoded = base64::encode(fb->buf, fb->len);
+    const size_t chunkSize = 10000;
+    size_t totalChunks = (encoded.length() + chunkSize - 1) / chunkSize;
+    for(size_t i = 0; i < totalChunks; i++) {
+      String chunk = "FRAME:" + String(i) + ":" + String(totalChunks) + ":" + encoded.substring(i * chunkSize, min((i + 1) * chunkSize, encoded.length()));
+      mesh.sendSingle(centralNodeId, chunk);
+      delay(10);
+    }
   }
   esp_camera_fb_return(fb);
 }
 
-// Callback mesh
 void receivedCallback(uint32_t from, String &msg) {
-  Serial.printf("Received from %u: %s\n", from, msg.c_str());
+  if(msg == "CENTRAL") centralNodeId = from;
 }
-void newConnectionCallback(uint32_t nodeId) {
-  Serial.printf("New Connection, nodeId = %u\n", nodeId);
-  // Set centralNodeId jika nodeId adalah central node
-  // (Bisa dengan pesan khusus dari central node)
-}
-void changedConnectionCallback() {
-  Serial.println("Changed connections");
-}
-void nodeTimeAdjustedCallback(int32_t offset) {
-  Serial.printf("Time adjusted by %d\n", offset);
-}
+void newConnectionCallback(uint32_t nodeId) {}
+void changedConnectionCallback() {}
+void nodeTimeAdjustedCallback(int32_t offset) {}
 
 
 void setup() {
   Serial.begin(115200);
-
-
-  // 1. Inisialisasi Mesh
-  mesh.setDebugMsgTypes(ERROR | STARTUP | CONNECTION);  // Debug
+  mesh.setDebugMsgTypes(ERROR | STARTUP);
   mesh.init(MESH_PREFIX, MESH_PASSWORD, &userScheduler, MESH_PORT);
   mesh.onReceive(&receivedCallback);
   mesh.onNewConnection(&newConnectionCallback);
   mesh.onChangedConnections(&changedConnectionCallback);
   mesh.onNodeTimeAdjusted(&nodeTimeAdjustedCallback);
 
-  // 2. Konfigurasi Kamera
   camera_config_t config;
   config.ledc_channel = LEDC_CHANNEL_0;
   config.ledc_timer = LEDC_TIMER_0;
@@ -103,19 +89,14 @@ void setup() {
   config.pin_reset = RESET_GPIO_NUM;
   config.xclk_freq_hz = 20000000;
   config.pixel_format = PIXFORMAT_JPEG;
+  config.frame_size = FRAMESIZE_QVGA;
+  config.jpeg_quality = 15;
+  config.fb_count = 1;
 
-  // Cek PSRAM dan set resolusi sesuai ketersediaan memori
-  if(psramFound()){
-    config.frame_size = FRAMESIZE_SVGA;  // 800x600 dengan PSRAM
-    config.jpeg_quality = 12;
-    config.fb_count = 2;  // 2 frame buffers untuk stabilitas
-    Serial.println("PSRAM found, using SVGA resolution");
-  } else {
-    config.frame_size = FRAMESIZE_CIF;  // 400x296 tanpa PSRAM
-    config.jpeg_quality = 12;
-    config.fb_count = 1;
-    Serial.println("PSRAM not found, using CIF resolution");
-  }
+  // Resolusi: SVGA (800x600) atau CIF (400x296) agar stabil
+  config.frame_size = FRAMESIZE_SVGA;
+  config.jpeg_quality = 12; // 0-63 (makin kecil makin bagus kualitasnya)
+  config.fb_count = 1;
 
   // Init Kamera
   esp_err_t err = esp_camera_init(&config);
@@ -128,9 +109,8 @@ void setup() {
 
 void loop() {
   mesh.update();
-  // Cek timer
-  if ((millis() - lastTime) > timerDelay) {
-    sendImage();
+  if ((millis() - lastTime) > FRAME_DELAY) {
+    sendFrame();
     lastTime = millis();
   }
 }
