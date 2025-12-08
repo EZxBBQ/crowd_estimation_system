@@ -55,7 +55,7 @@ void sendDataTest(void* params)
   while (true)
   {
     // kirim data (dummy) ke flask server
-    String dummyImage = "test2.jpeg";
+    String dummyImage = "test3.jpg";
     int peopleCount = 50;
 
     String jsonBody = "{";

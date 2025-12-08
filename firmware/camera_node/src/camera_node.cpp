@@ -2,17 +2,24 @@
 #include "esp_camera.h"
 #include <painlessMesh.h>
 #include <base64.h>
+#include <WiFi.h>
+#include <WebServer.h>
 
 #define   MESH_PREFIX     "CrowdMesh"
 #define   MESH_PASSWORD   "meshpassword"
 #define   MESH_PORT       5555
 #define   FRAME_DELAY     100
-#define   CAMERA_MODEL_AI_THINKER 
+#define   CAMERA_MODEL_AI_THINKER
+
+// WiFi credentials for web viewing
+#define WIFI_SSID "ESP32-CAM"
+#define WIFI_PASS "12345678" 
 
 Scheduler userScheduler;
 painlessMesh mesh;
 uint32_t centralNodeId = 0;
 unsigned long lastTime = 0;
+WebServer server(80);
 
 // --- PIN DEFINITION FOR AI THINKER MODEL ---
 #define PWDN_GPIO_NUM     32
@@ -58,15 +65,46 @@ void newConnectionCallback(uint32_t nodeId) {}
 void changedConnectionCallback() {}
 void nodeTimeAdjustedCallback(int32_t offset) {}
 
+void handleStream() {
+  camera_fb_t * fb = esp_camera_fb_get();
+  if (!fb) {
+    server.send(500, "text/plain", "Camera capture failed");
+    return;
+  }
+  
+  server.sendHeader("Access-Control-Allow-Origin", "*");
+  server.send_P(200, "image/jpeg", (const char *)fb->buf, fb->len);
+  esp_camera_fb_return(fb);
+}
+
+void handleRoot() {
+  String html = "<!DOCTYPE html><html><head><title>ESP32-CAM</title></head><body>";
+  html += "<h1>ESP32-CAM Live View</h1>";
+  html += "<img id='stream' src='/stream' style='width:100%; max-width:800px;'>";
+  html += "<script>setInterval(()=>{document.getElementById('stream').src='/stream?t='+new Date().getTime()},100);</script>";
+  html += "</body></html>";
+  server.send(200, "text/html", html);
+}
+
 
 void setup() {
   Serial.begin(115200);
-  mesh.setDebugMsgTypes(ERROR | STARTUP);
-  mesh.init(MESH_PREFIX, MESH_PASSWORD, &userScheduler, MESH_PORT);
-  mesh.onReceive(&receivedCallback);
-  mesh.onNewConnection(&newConnectionCallback);
-  mesh.onChangedConnections(&changedConnectionCallback);
-  mesh.onNodeTimeAdjusted(&nodeTimeAdjustedCallback);
+  Serial.setDebugOutput(true);
+  Serial.println();
+  Serial.println("=== ESP32-CAM Starting ===");
+  delay(1000);
+  
+  // Setup WiFi Access Point
+  WiFi.mode(WIFI_AP);
+  WiFi.softAP(WIFI_SSID, WIFI_PASS);
+  delay(500);
+  
+  IPAddress IP = WiFi.softAPIP();
+  Serial.println("WiFi AP Started");
+  Serial.print("AP IP Address: ");
+  Serial.println(IP);
+  Serial.print("AP MAC: ");
+  Serial.println(WiFi.softAPmacAddress());
 
   camera_config_t config;
   config.ledc_channel = LEDC_CHANNEL_0;
@@ -105,13 +143,17 @@ void setup() {
     return;
   }
   Serial.println("Camera Ready!");
+  
+  // Setup web server
+  server.on("/", handleRoot);
+  server.on("/stream", handleStream);
+  server.begin();
+  Serial.println("Web server started");
+  Serial.println("Connect to WiFi: " + String(WIFI_SSID));
+  Serial.println("Open browser at: http://192.168.4.1");
 }
 
 void loop() {
-  mesh.update();
-  if ((millis() - lastTime) > FRAME_DELAY) {
-    sendFrame();
-    lastTime = millis();
-  }
+  server.handleClient();
 }
 

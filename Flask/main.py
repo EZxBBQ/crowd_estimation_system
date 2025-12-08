@@ -36,14 +36,14 @@ def update_system(system_id):
     imagePath = data.get("image")
     if data.get("maxPeople") is not None:
         system["maxPeople"] = data.get("maxPeople")
-    if data.get("peopleCount") is not None:
-        system["peopleCount"] = data.get("peopleCount")
-        peopleCount = int(system["peopleCount"])
+    if data.get("image") is not None:
+        crowdLevel, standing, sitting, peopleCount = RunYolo(imagePath)
+        system["peopleCount"] = peopleCount
         maxPeople = int(system["maxPeople"]) if system["maxPeople"] else 0
         if maxPeople > 0 and peopleCount >= maxPeople:
             system["crowdLevel"] = CrowdLevel.FULL.value
         else:
-            system["crowdLevel"] = RunYolo("test2.jpeg")[0]
+            system["crowdLevel"] = crowdLevel
     return jsonify(system), 200
 
 @app.route("/api/systems", methods=["GET"])
