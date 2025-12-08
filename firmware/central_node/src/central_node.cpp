@@ -1,31 +1,53 @@
-/*
- * CENTRAL NODE (ESP32 Bridge)
- * Tugas: Terima data Mesh -> Kirim ke Laptop via WiFi.
- */
 #include <Arduino.h>
 #include <painlessMesh.h>
 #include <HTTPClient.h>
 #include <WiFi.h>
-#include <base64.h>
+#include <ESPAsyncWebServer.h>
 
-// --- KONFIGURASI MESH (Harus sama persis dengan node lain) ---
 #define   MESH_PREFIX     "CrowdMesh"
 #define   MESH_PASSWORD   "meshpassword"
 #define   MESH_PORT       5555
-#define   SYSTEM_ID       0x01 
+#define   SYSTEM_ID       0x01
 
 const char* AP_ssid = "ClientNode_AP";
 const char* AP_password = "clientnodepass";
 const char* external_ip = "10.78.49.2";
 const uint16_t flask_port = 5000;
+
 Scheduler userScheduler;
 painlessMesh mesh;
 HTTPClient http;
+AsyncWebServer server(80);
+AsyncWebSocket ws("/ws");
 
-// Callback saat terima data dari Mesh (Sensor/Kamera)
-void receivedCallback( uint32_t from, String &msg ) {
-  Serial.printf("Received from %u msg=%s\n", from, msg.c_str());
-  // Proses data di sini (misal: simpan, tampilkan, dsb)
+String frameBuffer = "";
+size_t currentChunk = 0;
+size_t totalChunks = 0;
+String currentFrame = "";
+
+void receivedCallback(uint32_t from, String &msg) {
+  if(msg.startsWith("FRAME:")) {
+    int idx1 = msg.indexOf(':', 6);
+    int idx2 = msg.indexOf(':', idx1 + 1);
+    size_t chunk = msg.substring(6, idx1).toInt();
+    size_t total = msg.substring(idx1 + 1, idx2).toInt();
+    String data = msg.substring(idx2 + 1);
+    
+    if(chunk == 0) {
+      currentFrame = data;
+      currentChunk = 0;
+      totalChunks = total;
+    } else if(chunk == currentChunk + 1) {
+      currentFrame += data;
+      currentChunk = chunk;
+    }
+    
+    if(currentChunk == totalChunks - 1) {
+      ws.textAll(currentFrame);
+      currentFrame = "";
+    }
+  }
+  mesh.sendSingle(from, "CENTRAL");
 }
 
 void sendDataTest(void* params)
@@ -33,7 +55,7 @@ void sendDataTest(void* params)
   while (true)
   {
     // kirim data (dummy) ke flask server
-    String dummyImage = "test2.jpeg";
+    String dummyImage = "test3.jpg";
     int peopleCount = 50;
 
     String jsonBody = "{";
@@ -74,28 +96,20 @@ void sendDataTest(void* params)
 
 void setup() {
   Serial.begin(115200);
-
-  // Setup AP WiFi
   WiFi.mode(WIFI_AP);
-
-  // Setup Mesh
-  mesh.setDebugMsgTypes( ERROR | STARTUP | CONNECTION );
-  mesh.init( MESH_PREFIX, MESH_PASSWORD, &userScheduler, MESH_PORT );
+  
+  mesh.setDebugMsgTypes(ERROR | STARTUP);
+  mesh.init(MESH_PREFIX, MESH_PASSWORD, &userScheduler, MESH_PORT);
   WiFi.softAP(AP_ssid, AP_password);
-  IPAddress IP = WiFi.softAPIP();
-  Serial.println("Central Node AP IP address: " + IP.toString());
   mesh.onReceive(&receivedCallback);
   mesh.setRoot(true);
   mesh.setContainsRoot(true);
+  
+  ws.onEvent([](AsyncWebSocket *server, AsyncWebSocketClient *client, AwsEventType type, void *arg, uint8_t *data, size_t len){});
+  server.addHandler(&ws);
+  server.begin();
 
-  xTaskCreate(
-    sendDataTest,
-    "SendDataTest",
-    4096,
-    NULL,
-    1,
-    NULL
-  );
+  xTaskCreate(sendDataTest, "SendDataTest", 4096, NULL, 1, NULL);
 }
 
 void loop() {

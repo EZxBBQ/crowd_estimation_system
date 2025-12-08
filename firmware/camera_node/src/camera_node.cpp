@@ -1,20 +1,25 @@
 #include <Arduino.h>
 #include "esp_camera.h"
 #include <painlessMesh.h>
+#include <base64.h>
+#include <WiFi.h>
+#include <WebServer.h>
 
-
-// --- KONFIGURASI MESH ---
-#define   MESH_PREFIX     "CrowdMesh"   // Nama mesh
-#define   MESH_PASSWORD   "meshpassword" // Password mesh
+#define   MESH_PREFIX     "CrowdMesh"
+#define   MESH_PASSWORD   "meshpassword"
 #define   MESH_PORT       5555
+#define   FRAME_DELAY     100
+#define   CAMERA_MODEL_AI_THINKER
+
+// WiFi credentials for web viewing
+#define WIFI_SSID "ESP32-CAM"
+#define WIFI_PASS "12345678" 
 
 Scheduler userScheduler;
 painlessMesh mesh;
-uint32_t centralNodeId = 0; // Set di central node
-
-// --- PENGATURAN WAKTU ---
-unsigned long timerDelay = 10000; // Ambil gambar tiap 10 detik
+uint32_t centralNodeId = 0;
 unsigned long lastTime = 0;
+WebServer server(80);
 
 // --- PIN DEFINITION FOR AI THINKER MODEL ---
 #define PWDN_GPIO_NUM     32
@@ -34,57 +39,73 @@ unsigned long lastTime = 0;
 #define HREF_GPIO_NUM     23
 #define PCLK_GPIO_NUM     22
 
-
-
-void sendImage() {
-  camera_fb_t * fb = NULL;
-  // Ambil Gambar
-  fb = esp_camera_fb_get(); 
+void sendFrame() {
+  camera_fb_t * fb = esp_camera_fb_get();
   if(!fb) {
     Serial.println("Camera capture failed");
     return;
   }
-  // Kirim notifikasi ke central node via mesh (bukan gambar langsung)
   if (centralNodeId != 0) {
-    mesh.sendSingle(centralNodeId, "Image captured");
-    Serial.println("Image notification sent to central node via mesh!");
-  } else {
-    Serial.println("Central node ID not set!");
+    String encoded = base64::encode(fb->buf, fb->len);
+    const size_t chunkSize = 10000;
+    size_t totalChunks = (encoded.length() + chunkSize - 1) / chunkSize;
+    for(size_t i = 0; i < totalChunks; i++) {
+      String chunk = "FRAME:" + String(i) + ":" + String(totalChunks) + ":" + encoded.substring(i * chunkSize, min((i + 1) * chunkSize, encoded.length()));
+      mesh.sendSingle(centralNodeId, chunk);
+      delay(10);
+    }
   }
   esp_camera_fb_return(fb);
 }
 
-
-
-// Callback mesh
 void receivedCallback(uint32_t from, String &msg) {
-  Serial.printf("Received from %u: %s\n", from, msg.c_str());
+  if(msg == "CENTRAL") centralNodeId = from;
 }
-void newConnectionCallback(uint32_t nodeId) {
-  Serial.printf("New Connection, nodeId = %u\n", nodeId);
-  // Set centralNodeId jika nodeId adalah central node
-  // (Bisa dengan pesan khusus dari central node)
+void newConnectionCallback(uint32_t nodeId) {}
+void changedConnectionCallback() {}
+void nodeTimeAdjustedCallback(int32_t offset) {}
+
+void handleStream() {
+  camera_fb_t * fb = esp_camera_fb_get();
+  if (!fb) {
+    server.send(500, "text/plain", "Camera capture failed");
+    return;
+  }
+  
+  server.sendHeader("Access-Control-Allow-Origin", "*");
+  server.send_P(200, "image/jpeg", (const char *)fb->buf, fb->len);
+  esp_camera_fb_return(fb);
 }
-void changedConnectionCallback() {
-  Serial.println("Changed connections");
-}
-void nodeTimeAdjustedCallback(int32_t offset) {
-  Serial.printf("Time adjusted by %d\n", offset);
+
+void handleRoot() {
+  String html = "<!DOCTYPE html><html><head><title>ESP32-CAM</title></head><body>";
+  html += "<h1>ESP32-CAM Live View</h1>";
+  html += "<img id='stream' src='/stream' style='width:100%; max-width:800px;'>";
+  html += "<script>setInterval(()=>{document.getElementById('stream').src='/stream?t='+new Date().getTime()},100);</script>";
+  html += "</body></html>";
+  server.send(200, "text/html", html);
 }
 
 
 void setup() {
   Serial.begin(115200);
+  Serial.setDebugOutput(true);
+  Serial.println();
+  Serial.println("=== ESP32-CAM Starting ===");
+  delay(1000);
+  
+  // Setup WiFi Access Point
+  WiFi.mode(WIFI_AP);
+  WiFi.softAP(WIFI_SSID, WIFI_PASS);
+  delay(500);
+  
+  IPAddress IP = WiFi.softAPIP();
+  Serial.println("WiFi AP Started");
+  Serial.print("AP IP Address: ");
+  Serial.println(IP);
+  Serial.print("AP MAC: ");
+  Serial.println(WiFi.softAPmacAddress());
 
-  // 1. Inisialisasi Mesh
-  mesh.setDebugMsgTypes(ERROR | STARTUP | CONNECTION);  // Debug
-  mesh.init(MESH_PREFIX, MESH_PASSWORD, &userScheduler, MESH_PORT);
-  mesh.onReceive(&receivedCallback);
-  mesh.onNewConnection(&newConnectionCallback);
-  mesh.onChangedConnections(&changedConnectionCallback);
-  mesh.onNodeTimeAdjusted(&nodeTimeAdjustedCallback);
-
-  // 2. Konfigurasi Kamera
   camera_config_t config;
   config.ledc_channel = LEDC_CHANNEL_0;
   config.ledc_timer = LEDC_TIMER_0;
@@ -100,12 +121,15 @@ void setup() {
   config.pin_pclk = PCLK_GPIO_NUM;
   config.pin_vsync = VSYNC_GPIO_NUM;
   config.pin_href = HREF_GPIO_NUM;
-  config.pin_sccb_sda = SIOD_GPIO_NUM;  // use pin_sccb_sda instead of pin_sscb_sda (deprecated)
-  config.pin_sccb_scl = SIOC_GPIO_NUM;  // use pin_sccb_scl instead of pin_sscb_scl (deprecated)
+  config.pin_sccb_sda = SIOD_GPIO_NUM;
+  config.pin_sccb_scl = SIOC_GPIO_NUM;
   config.pin_pwdn = PWDN_GPIO_NUM;
   config.pin_reset = RESET_GPIO_NUM;
   config.xclk_freq_hz = 20000000;
   config.pixel_format = PIXFORMAT_JPEG;
+  config.frame_size = FRAMESIZE_QVGA;
+  config.jpeg_quality = 15;
+  config.fb_count = 1;
 
   // Resolusi: SVGA (800x600) atau CIF (400x296) agar stabil
   config.frame_size = FRAMESIZE_SVGA;
@@ -119,13 +143,17 @@ void setup() {
     return;
   }
   Serial.println("Camera Ready!");
+  
+  // Setup web server
+  server.on("/", handleRoot);
+  server.on("/stream", handleStream);
+  server.begin();
+  Serial.println("Web server started");
+  Serial.println("Connect to WiFi: " + String(WIFI_SSID));
+  Serial.println("Open browser at: http://192.168.4.1");
 }
 
 void loop() {
-  mesh.update();
-  // Cek timer
-  if ((millis() - lastTime) > timerDelay) {
-    sendImage();
-    lastTime = millis();
-  }
+  server.handleClient();
 }
+

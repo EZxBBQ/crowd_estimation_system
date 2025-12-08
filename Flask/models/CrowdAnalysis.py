@@ -15,8 +15,8 @@ def RunYolo(img):
     # 1280x736 input resolution, keep people at confidential value at 10% and no overlapping less than 70%
     detectionResults = detectionModel(img, save=True, imgsz=(img_height, img_width), conf=0.1, iou=0.7) 
     poseResults = poseModel(img, save=True, imgsz=(img_height, img_width), conf=0.4, iou=0.7, classes=[0])
-    level, standing, sitting = AnalyzeResults(detectionResults, poseResults)
-    return level, standing, sitting
+    level, standing, sitting, peopleCount = AnalyzeResults(detectionResults, poseResults)
+    return level, standing, sitting, peopleCount
 
 
 
@@ -38,7 +38,8 @@ def AnalyzeResults(detectionResults, poseResults):
             cy = (y1 + y2) / 2 
             centroids.append((cx, cy))
     
-    # count people detected in each section
+    peopleCount = len(centroids)
+    
     for cx, cy in centroids:
         row = int(cy // sectionHeight)
         col = int(cx // sectionWidth)
@@ -86,7 +87,7 @@ def AnalyzeResults(detectionResults, poseResults):
 
     level = LevelEvaluation(sections, standing, sitting)
     print(level)
-    return level, standing, sitting
+    return level, standing, sitting, peopleCount
 
 
 

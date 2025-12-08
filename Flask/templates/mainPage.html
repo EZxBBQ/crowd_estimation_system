@@ -41,8 +41,49 @@
 
     </div>
 
+    <div id="videoModal" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.75); z-index: 9999; align-items: center; justify-content: center;">
+        <div class="bg-gray-800 rounded-lg p-6 max-w-3xl w-full mx-4">
+            <div class="flex justify-between items-center mb-4">
+                <h2 class="text-2xl font-bold text-white">Camera View</h2>
+                <button id="closeModal" class="text-gray-400 hover:text-white text-3xl">&times;</button>
+            </div>
+            <canvas id="videoCanvas" class="w-full h-auto bg-black rounded"></canvas>
+        </div>
+    </div>
+
     <script>
-        // Inline editing functionality for max people limit
+        document.addEventListener('DOMContentLoaded', () => {
+            let ws = null;
+            const modal = document.getElementById('videoModal');
+            const canvas = document.getElementById('videoCanvas');
+            const ctx = canvas.getContext('2d');
+            const closeBtn = document.getElementById('closeModal');
+
+            document.querySelectorAll('.view-details-btn').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    console.log('View Details clicked');
+                    console.log('Modal before:', modal.style.display);
+                    modal.style.display = 'flex';
+                    console.log('Modal after:', modal.style.display);
+                    console.log('Modal element:', modal);
+                    ws = new WebSocket('ws://' + window.location.host + '/stream');
+                    ws.onmessage = (event) => {
+                        const img = new Image();
+                        img.onload = () => {
+                            canvas.width = img.width;
+                            canvas.height = img.height;
+                            ctx.drawImage(img, 0, 0);
+                        };
+                        img.src = 'data:image/jpeg;base64,' + event.data;
+                    };
+                });
+            });
+
+            closeBtn.addEventListener('click', () => {
+                modal.style.display = 'none';
+                if(ws) ws.close();
+            });
+
         document.querySelectorAll('.modify-limit-btn').forEach(btn => {
             btn.addEventListener('click', function() {
                 const systemId = this.getAttribute('data-system-id');
@@ -122,15 +163,14 @@
                 const modifyBtn = systemCard.querySelector('.modify-limit-btn');
                 const editButtons = systemCard.querySelector('.edit-buttons');
                 
-                // Reset input to original value
                 input.value = display.textContent.trim();
                 
-                // Switch back to display mode
                 input.classList.add('hidden');
                 display.classList.remove('hidden');
                 editButtons.classList.add('hidden');
                 modifyBtn.classList.remove('hidden');
             });
+        });
         });
     </script>
 
