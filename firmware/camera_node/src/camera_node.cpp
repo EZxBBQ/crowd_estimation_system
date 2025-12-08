@@ -34,8 +34,6 @@ unsigned long lastTime = 0;
 #define HREF_GPIO_NUM     23
 #define PCLK_GPIO_NUM     22
 
-
-
 void sendImage() {
   camera_fb_t * fb = NULL;
   // Ambil Gambar
@@ -53,8 +51,6 @@ void sendImage() {
   }
   esp_camera_fb_return(fb);
 }
-
-
 
 // Callback mesh
 void receivedCallback(uint32_t from, String &msg) {
@@ -75,6 +71,7 @@ void nodeTimeAdjustedCallback(int32_t offset) {
 
 void setup() {
   Serial.begin(115200);
+
 
   // 1. Inisialisasi Mesh
   mesh.setDebugMsgTypes(ERROR | STARTUP | CONNECTION);  // Debug
@@ -100,17 +97,25 @@ void setup() {
   config.pin_pclk = PCLK_GPIO_NUM;
   config.pin_vsync = VSYNC_GPIO_NUM;
   config.pin_href = HREF_GPIO_NUM;
-  config.pin_sccb_sda = SIOD_GPIO_NUM;  // use pin_sccb_sda instead of pin_sscb_sda (deprecated)
-  config.pin_sccb_scl = SIOC_GPIO_NUM;  // use pin_sccb_scl instead of pin_sscb_scl (deprecated)
+  config.pin_sccb_sda = SIOD_GPIO_NUM;
+  config.pin_sccb_scl = SIOC_GPIO_NUM;
   config.pin_pwdn = PWDN_GPIO_NUM;
   config.pin_reset = RESET_GPIO_NUM;
   config.xclk_freq_hz = 20000000;
   config.pixel_format = PIXFORMAT_JPEG;
 
-  // Resolusi: SVGA (800x600) atau CIF (400x296) agar stabil
-  config.frame_size = FRAMESIZE_SVGA;
-  config.jpeg_quality = 12; // 0-63 (makin kecil makin bagus kualitasnya)
-  config.fb_count = 1;
+  // Cek PSRAM dan set resolusi sesuai ketersediaan memori
+  if(psramFound()){
+    config.frame_size = FRAMESIZE_SVGA;  // 800x600 dengan PSRAM
+    config.jpeg_quality = 12;
+    config.fb_count = 2;  // 2 frame buffers untuk stabilitas
+    Serial.println("PSRAM found, using SVGA resolution");
+  } else {
+    config.frame_size = FRAMESIZE_CIF;  // 400x296 tanpa PSRAM
+    config.jpeg_quality = 12;
+    config.fb_count = 1;
+    Serial.println("PSRAM not found, using CIF resolution");
+  }
 
   // Init Kamera
   esp_err_t err = esp_camera_init(&config);
@@ -129,3 +134,4 @@ void loop() {
     lastTime = millis();
   }
 }
+
