@@ -37,8 +37,19 @@ def update_system(system_id):
     if not system:
         return jsonify({"error": "System not found"}), 404
     data = request.get_json()
+    
+    # Track if sensor count is provided
+    sensorCountProvided = False
+    
     if data.get("maxPeople") is not None:
         system["maxPeople"] = data.get("maxPeople")
+    
+    if data.get("peopleCount") is not None:
+        system["peopleCount"] = data.get("peopleCount")
+        sensorCountProvided = True
+        print(f"[FLASK] Received count={data.get('peopleCount')}")
+        logger.info(f"[FLASK] Received sensor count for system {system_id}: {data.get('peopleCount')} people")
+    
     if data.get("image") is not None:
         img_data = data.get("image")
         logger.info(f"[FLASK] Received image for system {system_id}: {len(img_data)} chars")
@@ -51,17 +62,37 @@ def update_system(system_id):
             img = Image.open(io.BytesIO(img_bytes))
             temp_path = f"temp_{system_id}.jpg"
             img.save(temp_path)
-            crowdLevel, standing, sitting, peopleCount = RunYolo(temp_path)
-            system["peopleCount"] = peopleCount
+            # Run YOLO for crowd level analysis only
+            crowdLevel, standing, sitting, yoloPeopleCount = RunYolo(temp_path)
+            
+            # Only use YOLO count if sensor count was not provided
+            if not sensorCountProvided:
+                system["peopleCount"] = yoloPeopleCount
+                logger.info(f"[FLASK] Using YOLO count (no sensor data): {yoloPeopleCount} people")
+            else:
+                logger.info(f"[FLASK] Using sensor count: {system['peopleCount']} people (YOLO detected: {yoloPeopleCount})")
+            
             maxPeople = int(system["maxPeople"]) if system["maxPeople"] else 0
-            if maxPeople > 0 and peopleCount >= maxPeople:
+            peopleCountInt = int(system["peopleCount"]) if system["peopleCount"] != "" else 0
+            if maxPeople > 0 and peopleCountInt >= maxPeople:
                 system["crowdLevel"] = CrowdLevel.FULL.value
             else:
                 system["crowdLevel"] = crowdLevel
-            logger.info(f"[FLASK] Image processed: {peopleCount} people detected")
+            logger.info(f"[FLASK] Final count: {system['peopleCount']} people, Level: {system['crowdLevel']}")
         except Exception as e:
             logger.error(f"[FLASK] Failed to process image: {e}")
-    return jsonify(system), 200
+    else:
+        # If only count update (no image), just update the count
+        logger.info(f"[FLASK] Count-only update for system {system_id}: {system['peopleCount']} people")
+    
+    # Return response with crowdLevel for ESP32 to display on LCD
+    response = {
+        "id": system["id"],
+        "crowdLevel": system["crowdLevel"],
+        "peopleCount": system["peopleCount"],
+        "maxPeople": system["maxPeople"]
+    }
+    return jsonify(response), 200
 
 @app.route("/api/systems", methods=["GET"])
 def get_systems():

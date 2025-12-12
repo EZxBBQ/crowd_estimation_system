@@ -39,6 +39,7 @@ Scheduler userScheduler;
 painlessMesh  mesh;
 
 int peopleCount = 0;
+String crowdLevel = "LOW"; // Default crowd level
 
 // Variabel Logika Urutan (State Machine)
 // 0 = Diam/Standby
@@ -57,30 +58,45 @@ const int timeout = 2500; // Reset otomatis jika diam lebih dari 2.5 detik
 void updateLCD() {
   lcd.clear();
   lcd.setCursor(0, 0);
-  lcd.print("Crowd Monitor");
-  lcd.setCursor(0, 1);
-  lcd.print("Count: ");
+  lcd.print("Count:");
   lcd.print(peopleCount);
+  lcd.print(" ");
   
-  // Tampilkan status kecil di pojok kanan bawah
-  lcd.setCursor(13, 1);
-  if (sequenceState == 1) lcd.print("->"); // Tanda sedang masuk
-  else if (sequenceState == 2) lcd.print("<-"); // Tanda sedang keluar
+  // Status kecil di pojok kanan atas
+  lcd.setCursor(13, 0);
+  if (sequenceState == 1) lcd.print("->"); 
+  else if (sequenceState == 2) lcd.print("<-"); 
   else lcd.print("OK");
+  
+  // Tampilkan crowd level di baris kedua
+  lcd.setCursor(0, 1);
+  lcd.print("Level: ");
+  lcd.print(crowdLevel);
 }
 
-// Fungsi Kirim Data ke Central Node (Mesh)
 void sendDataToMesh() {
   JsonDocument doc;
   doc["node"] = "sensor";
   doc["count"] = peopleCount;
-
   String msg;
   serializeJson(doc, msg);
-  
-  // Kirim ke semua node (Broadcast)
+  Serial.printf("[SENSOR] Sending count=%d\n", peopleCount);
   mesh.sendBroadcast(msg);
-  Serial.print("📡 Data Terkirim ke Mesh: "); Serial.println(msg);
+}
+
+// Fungsi Terima Data dari Central Node (Mesh)
+void receivedCallback(uint32_t from, String &msg) {
+  JsonDocument doc;
+  DeserializationError error = deserializeJson(doc, msg);
+  
+  if (!error && doc.containsKey("node") && doc["node"] == "central") {
+    // Terima crowd level dari central node
+    if (doc.containsKey("crowdLevel")) {
+      crowdLevel = doc["crowdLevel"].as<String>();
+      Serial.print("✅ Crowd Level Updated: "); Serial.println(crowdLevel);
+      updateLCD();
+    }
+  }
 }
 
 // ==========================================
@@ -187,6 +203,7 @@ void setup() {
   // Debug Message: ERROR dan STARTUP saja biar serial monitor gak penuh spam
   mesh.setDebugMsgTypes( ERROR | STARTUP ); 
   mesh.init( MESH_PREFIX, MESH_PASSWORD, &userScheduler, MESH_PORT );
+  mesh.onReceive(&receivedCallback); // Set callback untuk terima data dari mesh
 
   // Aktifkan Task Sensor
   userScheduler.addTask( taskReadSensors );

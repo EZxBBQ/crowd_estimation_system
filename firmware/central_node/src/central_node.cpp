@@ -3,6 +3,7 @@
 #include <HTTPClient.h>
 #include <WiFi.h>
 #include <ESPAsyncWebServer.h>
+#include <ArduinoJson.h>
 
 #define   MESH_PREFIX     "CrowdMesh"
 #define   MESH_PASSWORD   "meshpassword"
@@ -24,9 +25,33 @@ String imageBuffer = "";
 size_t currentImgChunk = 0;
 size_t totalImgChunks = 0;
 String latestImage = "";
+int sensorPeopleCount = 0;
 
 void receivedCallback(uint32_t from, String &msg) {
-  if(msg.startsWith("IMG:")) {
+  if(msg.startsWith("{\"node\":\"sensor\"")) {
+    JsonDocument doc;
+    DeserializationError error = deserializeJson(doc, msg);
+    if(!error && doc.containsKey("count")) {
+      sensorPeopleCount = doc["count"].as<int>();
+      Serial.printf("[CENTRAL] Received count=%d\n", sensorPeopleCount);
+      
+      // Immediately send count update to Flask
+      String jsonBody = "{\"peopleCount\":" + String(sensorPeopleCount) + "}";
+      String url = String("http://") + external_ip + ":" + String(flask_port) + "/api/systems/" + String(SYSTEM_ID);
+      HTTPClient tempHttp;
+      tempHttp.begin(url);
+      tempHttp.addHeader("Content-Type", "application/json");
+      int httpResponseCode = tempHttp.sendRequest("PATCH", jsonBody);
+      if(httpResponseCode > 0) {
+        Serial.printf("[CENTRAL] Count update sent to Flask: %d people\n", sensorPeopleCount);
+      } else {
+        Serial.printf("[CENTRAL] Failed to send count update: HTTP %d\n", httpResponseCode);
+      }
+      tempHttp.end();
+    }
+  }
+  // Handle image data
+  else if(msg.startsWith("IMG:")) {
     int idx1 = msg.indexOf(':', 4);
     int idx2 = msg.indexOf(':', idx1 + 1);
     size_t chunk = msg.substring(4, idx1).toInt();
@@ -52,19 +77,37 @@ void receivedCallback(uint32_t from, String &msg) {
 void sendDataTest(void* params) {
   while (true) {
     if (latestImage.length() > 0) {
-      Serial.printf("[CENTRAL] Sending image to Flask: %d bytes\n", latestImage.length());
+      Serial.printf("[CENTRAL] Sending data to Flask - Image: %d bytes, Count: %d\n", latestImage.length(), sensorPeopleCount);
       String jsonBody = "{";
       jsonBody += "\"image\":\"" + latestImage + "\",";
-      jsonBody += "\"peopleCount\":0";
+      jsonBody += "\"peopleCount\":" + String(sensorPeopleCount);
       jsonBody += "}";
       String url = String("http://") + external_ip + ":" + String(flask_port) + "/api/systems/" + String(SYSTEM_ID);
       http.begin(url);
       http.addHeader("Content-Type", "application/json");
       int httpResponseCode = http.sendRequest("PATCH", jsonBody);
       if(httpResponseCode > 0) {
-        Serial.printf("[CENTRAL] Image sent to Flask successfully: HTTP %d\n", httpResponseCode);
+        Serial.printf("[CENTRAL] Data sent to Flask successfully: HTTP %d\n", httpResponseCode);
+        
+        // Parse response to get crowdLevel
+        String response = http.getString();
+        JsonDocument doc;
+        DeserializationError error = deserializeJson(doc, response);
+        if(!error && doc.containsKey("crowdLevel")) {
+          String crowdLevel = doc["crowdLevel"].as<String>();
+          Serial.printf("[CENTRAL] Received crowdLevel from Flask: %s\n", crowdLevel.c_str());
+          
+          // Send crowdLevel to sensor node via mesh
+          JsonDocument meshDoc;
+          meshDoc["node"] = "central";
+          meshDoc["crowdLevel"] = crowdLevel;
+          String meshMsg;
+          serializeJson(meshDoc, meshMsg);
+          mesh.sendBroadcast(meshMsg);
+          Serial.printf("[CENTRAL] Sent crowdLevel to mesh: %s\n", meshMsg.c_str());
+        }
       } else {
-        Serial.printf("[CENTRAL] Failed to send image to Flask: HTTP %d\n", httpResponseCode);
+        Serial.printf("[CENTRAL] Failed to send data to Flask: HTTP %d\n", httpResponseCode);
       }
       http.end();
     } else {
