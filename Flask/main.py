@@ -4,12 +4,16 @@ from enum import Enum
 from models.CrowdAnalysis import RunYolo
 import requests
 import logging
+import base64
+import io
+from PIL import Image
 
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 
 peopleCount = ""
 imagePath = ""
+system_images = {}
 
 app = Flask(__name__)
 sock = Sock(app)
@@ -33,22 +37,41 @@ def update_system(system_id):
     if not system:
         return jsonify({"error": "System not found"}), 404
     data = request.get_json()
-    imagePath = data.get("image")
     if data.get("maxPeople") is not None:
         system["maxPeople"] = data.get("maxPeople")
     if data.get("image") is not None:
-        crowdLevel, standing, sitting, peopleCount = RunYolo(imagePath)
-        system["peopleCount"] = peopleCount
-        maxPeople = int(system["maxPeople"]) if system["maxPeople"] else 0
-        if maxPeople > 0 and peopleCount >= maxPeople:
-            system["crowdLevel"] = CrowdLevel.FULL.value
-        else:
-            system["crowdLevel"] = crowdLevel
+        img_data = data.get("image")
+        logger.info(f"[FLASK] Received image for system {system_id}: {len(img_data)} chars")
+        if img_data.startswith("data:image"):
+            img_data = img_data.split(",")[1]
+        system_images[system_id] = img_data
+        logger.info(f"[FLASK] Image stored successfully for system {system_id}")
+        try:
+            img_bytes = base64.b64decode(img_data)
+            img = Image.open(io.BytesIO(img_bytes))
+            temp_path = f"temp_{system_id}.jpg"
+            img.save(temp_path)
+            crowdLevel, standing, sitting, peopleCount = RunYolo(temp_path)
+            system["peopleCount"] = peopleCount
+            maxPeople = int(system["maxPeople"]) if system["maxPeople"] else 0
+            if maxPeople > 0 and peopleCount >= maxPeople:
+                system["crowdLevel"] = CrowdLevel.FULL.value
+            else:
+                system["crowdLevel"] = crowdLevel
+            logger.info(f"[FLASK] Image processed: {peopleCount} people detected")
+        except Exception as e:
+            logger.error(f"[FLASK] Failed to process image: {e}")
     return jsonify(system), 200
 
 @app.route("/api/systems", methods=["GET"])
 def get_systems():
     return jsonify(Systems), 200
+
+@app.route("/api/image/<int:system_id>", methods=["GET"])
+def get_image(system_id):
+    if system_id in system_images:
+        return jsonify({"image": system_images[system_id]}), 200
+    return jsonify({"error": "No image"}), 404
 
 @app.route("/api/test-esp32-connection", methods=["GET"])
 def test_esp32_connection():

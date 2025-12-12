@@ -20,77 +20,57 @@ HTTPClient http;
 AsyncWebServer server(80);
 AsyncWebSocket ws("/ws");
 
-String frameBuffer = "";
-size_t currentChunk = 0;
-size_t totalChunks = 0;
-String currentFrame = "";
+String imageBuffer = "";
+size_t currentImgChunk = 0;
+size_t totalImgChunks = 0;
+String latestImage = "";
 
 void receivedCallback(uint32_t from, String &msg) {
-  if(msg.startsWith("FRAME:")) {
-    int idx1 = msg.indexOf(':', 6);
+  if(msg.startsWith("IMG:")) {
+    int idx1 = msg.indexOf(':', 4);
     int idx2 = msg.indexOf(':', idx1 + 1);
-    size_t chunk = msg.substring(6, idx1).toInt();
+    size_t chunk = msg.substring(4, idx1).toInt();
     size_t total = msg.substring(idx1 + 1, idx2).toInt();
     String data = msg.substring(idx2 + 1);
-    
     if(chunk == 0) {
-      currentFrame = data;
-      currentChunk = 0;
-      totalChunks = total;
-    } else if(chunk == currentChunk + 1) {
-      currentFrame += data;
-      currentChunk = chunk;
+      imageBuffer = data;
+      currentImgChunk = 0;
+      totalImgChunks = total;
+      Serial.printf("[CENTRAL] Started receiving image: %d chunks\n", total);
+    } else if(chunk == currentImgChunk + 1) {
+      imageBuffer += data;
+      currentImgChunk = chunk;
     }
-    
-    if(currentChunk == totalChunks - 1) {
-      ws.textAll(currentFrame);
-      currentFrame = "";
+    if(currentImgChunk == totalImgChunks - 1) {
+      latestImage = imageBuffer;
+      imageBuffer = "";
+      Serial.printf("[CENTRAL] Image received successfully: %d bytes\n", latestImage.length());
     }
   }
-  mesh.sendSingle(from, "CENTRAL");
 }
 
-void sendDataTest(void* params)
-{
-  while (true)
-  {
-    // kirim data (dummy) ke flask server
-    String dummyImage = "test3.jpg";
-    int peopleCount = 50;
-
-    String jsonBody = "{";
-    jsonBody += "\"image\":\"" + dummyImage + "\",";
-    jsonBody += "\"peopleCount\":" + String(peopleCount);
-    jsonBody += "}";
-
-    if (WiFi.getMode() == WIFI_AP || true) {
-
+void sendDataTest(void* params) {
+  while (true) {
+    if (latestImage.length() > 0) {
+      Serial.printf("[CENTRAL] Sending image to Flask: %d bytes\n", latestImage.length());
+      String jsonBody = "{";
+      jsonBody += "\"image\":\"" + latestImage + "\",";
+      jsonBody += "\"peopleCount\":0";
+      jsonBody += "}";
       String url = String("http://") + external_ip + ":" + String(flask_port) + "/api/systems/" + String(SYSTEM_ID);
-
-      Serial.println("POST → " + url);
-      Serial.println("Payload: " + jsonBody);
-
       http.begin(url);
       http.addHeader("Content-Type", "application/json");
-
       int httpResponseCode = http.sendRequest("PATCH", jsonBody);
-
-      Serial.print("HTTP Response Code: ");
-      Serial.println(httpResponseCode);
-
-      if (httpResponseCode > 0) {
-        String response = http.getString();
-        Serial.println("Server Response: " + response);
+      if(httpResponseCode > 0) {
+        Serial.printf("[CENTRAL] Image sent to Flask successfully: HTTP %d\n", httpResponseCode);
       } else {
-        Serial.println("HTTP POST FAILED");
+        Serial.printf("[CENTRAL] Failed to send image to Flask: HTTP %d\n", httpResponseCode);
       }
-
       http.end();
-    } 
-    else {
-      Serial.println("WiFi not in AP mode — cannot reach laptop");
+    } else {
+      Serial.println("[CENTRAL] No image to send");
     }
-    vTaskDelay(pdTICKS_TO_MS(10000)); // delay 10 detik
+    vTaskDelay(pdTICKS_TO_MS(2000));
   }
 }
 

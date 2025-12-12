@@ -5,6 +5,8 @@
 #include <esp_camera.h>
 #include <WebServer.h>
 #include <esp_http_server.h>
+#include <painlessMesh.h>
+#include <base64.h>
 
 // Camera pin configuration for AI-Thinker ESP32-CAM
 #define PWDN_GPIO_NUM     32
@@ -24,10 +26,12 @@
 #define HREF_GPIO_NUM     23
 #define PCLK_GPIO_NUM     22
 
-const char* ssid = "esp32cam";
-const char* password = "123456789";
+#define MESH_PREFIX "CrowdMesh"
+#define MESH_PASSWORD "meshpassword"
+#define MESH_PORT 5555
 
-WebServer server(80);
+Scheduler userScheduler;
+painlessMesh mesh;
 
 
 
@@ -96,78 +100,38 @@ void InitCamera()
 }
 
 
-void HandleRoot() 
-{
-  String html = "<!DOCTYPE html><html><head><meta name='viewport' content='width=device-width, initial-scale=1'>";
-  html += "<style>body{margin:0;font-family:Arial;text-align:center;}";
-  html += "img{max-width:100%;height:auto;}</style></head><body>";
-  html += "<h1>ESP32-CAM Stream</h1>";
-  html += "<img src='/stream' id='stream'>";
-  html += "</body></html>";
-  server.send(200, "text/html", html);
-}
-
-
-TaskHandle_t CameraCaptureTaskHandle = NULL;
-void CameraCapture() 
-{
-  WiFiClient client = server.client();
-  client.println("HTTP/1.1 200 OK");
-  client.println("Content-Type: multipart/x-mixed-replace; boundary=frame");
-  client.println();
-
-  while (client.connected())
-  {
-    camera_fb_t * fb = esp_camera_fb_get();
-    if (!fb) 
-    {
-      Serial.println("Camera capture failed");
-      return;
-    }
-    client.println("--frame");
-    client.println("Content-Type: image/jpeg");
-    client.print("Content-Length: ");
-    client.println(fb->len);
-    client.println();
-    client.write(fb->buf, fb->len);
-    client.println();
-    
-    esp_camera_fb_return(fb);
-    
-    if (!client.connected()) break;
-
-    delay(42);
+void sendImage() {
+  camera_fb_t *fb = esp_camera_fb_get();
+  if(!fb) {
+    Serial.println("[CAMERA] Failed to capture image");
+    return;
   }
+  String encoded = base64::encode(fb->buf, fb->len);
+  esp_camera_fb_return(fb);
+  size_t chunkSize = 1000;
+  size_t totalChunks = (encoded.length() + chunkSize - 1) / chunkSize;
+  Serial.printf("[CAMERA] Sending image: %d bytes, %d chunks\n", encoded.length(), totalChunks);
+  for(size_t i = 0; i < totalChunks; i++) {
+    String chunk = "IMG:" + String(i) + ":" + String(totalChunks) + ":" + encoded.substring(i * chunkSize, min((i + 1) * chunkSize, encoded.length()));
+    mesh.sendBroadcast(chunk);
+    delay(10);
+  }
+  Serial.printf("[CAMERA] Image sent successfully: %d/%d chunks\n", totalChunks, totalChunks);
 }
 
-
-void InitWebServer() 
-{
-  server.on("/", HandleRoot);
-  server.on("/stream", CameraCapture);
-  server.begin();
-  Serial.println("Web server started");
-  Serial.print("Camera stream available at: http://");
-  Serial.println(WiFi.softAPIP());
-}
+Task taskSendImage(2000, TASK_FOREVER, &sendImage);
 
 
-void setup() 
-{
+void setup() {
   Serial.begin(115200);
-  WiFi.softAP(ssid, password);
-  WiFi.setSleep(false);
-  delay(2000);
-
-  Serial.println("\n=== ESP32-CAM CAMERA VERIFICATION ===");
   TestPSRAM();
   InitCamera();
-  InitWebServer();
-  Serial.println("=== VERIFICATION COMPLETE ===\n");
+  mesh.setDebugMsgTypes(ERROR | STARTUP);
+  mesh.init(MESH_PREFIX, MESH_PASSWORD, &userScheduler, MESH_PORT);
+  userScheduler.addTask(taskSendImage);
+  taskSendImage.enable();
 }
 
-
-void loop() 
-{
-  server.handleClient();
+void loop() {
+  mesh.update();
 }

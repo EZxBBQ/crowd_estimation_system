@@ -13,8 +13,8 @@ def RunYolo(img):
     poseModel = YOLO(os.path.join(model_dir, "yolov8s-pose.pt"))
 
     # 1280x736 input resolution, keep people at confidential value at 10% and no overlapping less than 70%
-    detectionResults = detectionModel(img, save=True, imgsz=(img_height, img_width), conf=0.1, iou=0.7) 
-    poseResults = poseModel(img, save=True, imgsz=(img_height, img_width), conf=0.4, iou=0.7, classes=[0])
+    detectionResults = detectionModel(img, save=False, imgsz=(img_height, img_width), conf=0.1, iou=0.7) 
+    poseResults = poseModel(img, save=False, imgsz=(img_height, img_width), conf=0.4, iou=0.7, classes=[0])
     level, standing, sitting, peopleCount = AnalyzeResults(detectionResults, poseResults)
     return level, standing, sitting, peopleCount
 
