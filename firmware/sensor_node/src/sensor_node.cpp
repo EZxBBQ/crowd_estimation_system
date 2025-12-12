@@ -1,108 +1,207 @@
 /*
- * SENSOR NODE (ESP32 + IR + LCD)
- * Tugas: Baca arah IR (Masuk/Keluar), Update LCD, Kirim ke Mesh.
+ * SENSOR NODE (Final Version with Sequence Logic)
+ * Hardware: ESP32 DevKit V1 + 2x IR Sensor + LCD I2C
+ * * LOGIKA PEMASANGAN:
+ * [Luar Ruangan]  -->  [Sensor 1 (Pin 18)]  -->  [Sensor 2 (Pin 19)]  -->  [Dalam Ruangan]
  */
 
-#include <Arduino.h>
 #include <painlessMesh.h>
 #include <LiquidCrystal_I2C.h>
 #include <ArduinoJson.h>
+#include <Wire.h>
 
-// --- KONFIGURASI MESH ---
+// ==========================================
+// 1. KONFIGURASI JARINGAN MESH
+// ==========================================
 #define   MESH_PREFIX     "CrowdMesh"
 #define   MESH_PASSWORD   "meshpassword"
 #define   MESH_PORT       5555
 
-// --- KONFIGURASI PIN ---
-#define IR_IN_PIN   18  // Sensor Masuk (GPIO 18)
-#define IR_OUT_PIN  19  // Sensor Keluar (GPIO 19)
+// ==========================================
+// 2. KONFIGURASI PIN (SESUAIKAN DISINI)
+// ==========================================
+// Sensor 1: Posisi di LUAR pintu (Awal masuk)
+#define PIN_SENSOR_1    25  
 
-// Alamat LCD biasanya 0x27. Jika tidak muncul, coba 0x3F.
+// Sensor 2: Posisi di DALAM pintu (Akhir masuk)
+#define PIN_SENSOR_2    27
+
+#define SDA_PIN 21
+#define SCL_PIN 22  
+
+// Alamat I2C LCD (Biasanya 0x27, kalau gagal coba 0x3F)
 LiquidCrystal_I2C lcd(0x27, 16, 2);
 
+// ==========================================
+// 3. VARIABEL GLOBAL
+// ==========================================
 Scheduler userScheduler; 
 painlessMesh  mesh;
 
-// Variabel Data
 int peopleCount = 0;
-bool lastInState = HIGH;
-bool lastOutState = HIGH;
 
-// --- FUNGSI UPDATE LCD ---
+// Variabel Logika Urutan (State Machine)
+// 0 = Diam/Standby
+// 1 = Proses MASUK dimulai (Sensor 1 kena duluan)
+// 2 = Proses KELUAR dimulai (Sensor 2 kena duluan)
+int sequenceState = 0; 
+
+unsigned long sequenceTimer = 0;
+const int timeout = 2500; // Reset otomatis jika diam lebih dari 2.5 detik
+
+// ==========================================
+// 4. FUNGSI-FUNGSI PENDUKUNG
+// ==========================================
+
+// Fungsi Update Tampilan LCD
 void updateLCD() {
   lcd.clear();
   lcd.setCursor(0, 0);
   lcd.print("Crowd Monitor");
   lcd.setCursor(0, 1);
-  lcd.print("People: ");
+  lcd.print("Count: ");
   lcd.print(peopleCount);
+  
+  // Tampilkan status kecil di pojok kanan bawah
+  lcd.setCursor(13, 1);
+  if (sequenceState == 1) lcd.print("->"); // Tanda sedang masuk
+  else if (sequenceState == 2) lcd.print("<-"); // Tanda sedang keluar
+  else lcd.print("OK");
 }
 
-// --- FUNGSI KIRIM DATA KE MESH ---
+// Fungsi Kirim Data ke Central Node (Mesh)
 void sendDataToMesh() {
-  DynamicJsonDocument doc(1024);
+  JsonDocument doc;
   doc["node"] = "sensor";
   doc["count"] = peopleCount;
 
   String msg;
   serializeJson(doc, msg);
   
-  // Kirim Broadcast agar Central Node mendengar
+  // Kirim ke semua node (Broadcast)
   mesh.sendBroadcast(msg);
-  Serial.println("Sent to Mesh: " + msg);
+  Serial.print("📡 Data Terkirim ke Mesh: "); Serial.println(msg);
 }
 
-// --- FUNGSI BACA SENSOR ---
+// ==========================================
+// 5. LOGIKA UTAMA (PEMBACAAN SENSOR)
+// ==========================================
 void readSensors() {
-  int inState = digitalRead(IR_IN_PIN);
-  int outState = digitalRead(IR_OUT_PIN);
+  // Baca status sensor (LOW = Ada Orang, HIGH = Kosong)
+  int s1 = digitalRead(PIN_SENSOR_1);
+  int s2 = digitalRead(PIN_SENSOR_2);
 
-  // Logika Sederhana (Active LOW = Ada Orang)
-  // Cek Orang Masuk
-  if (lastInState == HIGH && inState == LOW) {
+  // --- A. CEK TIMEOUT (RESET) ---
+  // Jika seseorang memotong sensor 1 tapi tidak lanjut ke sensor 2 dalam waktu lama
+  if (sequenceState != 0 && (millis() - sequenceTimer > timeout)) {
+    sequenceState = 0; // Reset ke posisi diam
+    Serial.println("⚠️ Timeout! Orang tidak jadi lewat. Reset urutan.");
+    updateLCD();
+  }
+
+  // --- B. DETEKSI AWAL (START) ---
+  if (sequenceState == 0) {
+    // Jika Sensor 1 kena duluan (dan Sensor 2 bersih) -> OTW MASUK
+    if (s1 == LOW && s2 == HIGH) {
+      sequenceState = 1; 
+      sequenceTimer = millis();
+      Serial.println("➡️ Proses MASUK dimulai (Sensor 1 Kena)...");
+      updateLCD();
+    } 
+    // Jika Sensor 2 kena duluan (dan Sensor 1 bersih) -> OTW KELUAR
+    else if (s2 == LOW && s1 == HIGH) {
+      sequenceState = 2;
+      sequenceTimer = millis();
+      Serial.println("⬅️ Proses KELUAR dimulai (Sensor 2 Kena)...");
+      updateLCD();
+    }
+  }
+
+  // --- C. DETEKSI AKHIR (FINISH) ---
+  
+  // LOGIKA MASUK: Tadi statusnya 1, sekarang Sensor 2 kena juga
+  if (sequenceState == 1 && s2 == LOW) {
     peopleCount++;
-    Serial.println("Orang Masuk!");
+    Serial.println("✅ SUKSES: Orang Masuk (+1)");
+    
+    // Kirim & Update
     updateLCD();
     sendDataToMesh();
-    delay(250); // Delay dikit biar ga double count
+    
+    // Reset & Delay biar tidak double count
+    sequenceState = 0; 
+    delay(500); 
   }
-
-  // Cek Orang Keluar
-  if (lastOutState == HIGH && outState == LOW) {
-    if (peopleCount > 0) peopleCount--;
-    Serial.println("Orang Keluar!");
+  
+  // LOGIKA KELUAR: Tadi statusnya 2, sekarang Sensor 1 kena juga
+  else if (sequenceState == 2 && s1 == LOW) {
+    if (peopleCount > 0) peopleCount--; // Jangan sampai minus
+    Serial.println("🔻 SUKSES: Orang Keluar (-1)");
+    
+    // Kirim & Update
     updateLCD();
     sendDataToMesh();
-    delay(250);
+    
+    // Reset & Delay
+    sequenceState = 0; 
+    delay(500); 
   }
-
-  lastInState = inState;
-  lastOutState = outState;
 }
 
-// Task untuk membaca sensor terus menerus
+// Task Scheduler: Jalankan fungsi sensor setiap 50 milidetik
 Task taskReadSensors(50, TASK_FOREVER, &readSensors);
+Task taskUpdateLCD(1000, TASK_FOREVER, &updateLCD);
 
+// ==========================================
+// 6. SETUP & LOOP
+// ==========================================
 void setup() {
   Serial.begin(115200);
+  delay(1000);
 
-  // Setup Pin
-  pinMode(IR_IN_PIN, INPUT); // Gunakan INPUT_PULLUP jika sensor butuh
-  pinMode(IR_OUT_PIN, INPUT);
+  Wire.begin(SDA_PIN, SCL_PIN);
+  Serial.println("Scanning I2C...");
+  bool i2cFound = false;
+  for(byte i = 1; i < 127; i++) {
+    Wire.beginTransmission(i);
+    if(Wire.endTransmission() == 0) {
+      Serial.printf("I2C device found at 0x%02X\n", i);
+      i2cFound = true;
+    }
+  }
+  if(!i2cFound) Serial.println("No I2C devices found!");
 
-  // Setup LCD
+  pinMode(PIN_SENSOR_1, INPUT_PULLUP); 
+  pinMode(PIN_SENSOR_2, INPUT_PULLUP);
+
   lcd.init();
   lcd.backlight();
-  updateLCD();
+  lcd.setCursor(0, 0);
+  lcd.print("Crowd Monitor");
+  lcd.setCursor(0, 1);
+  lcd.print("Count: 0");
+  Serial.println("LCD Initialized");
+  delay(2000);
 
-  // Setup Mesh
+  // Setup Mesh Network
+  // Debug Message: ERROR dan STARTUP saja biar serial monitor gak penuh spam
   mesh.setDebugMsgTypes( ERROR | STARTUP ); 
   mesh.init( MESH_PREFIX, MESH_PASSWORD, &userScheduler, MESH_PORT );
 
+  // Aktifkan Task Sensor
   userScheduler.addTask( taskReadSensors );
   taskReadSensors.enable();
+  
+  userScheduler.addTask( taskUpdateLCD );
+  taskUpdateLCD.enable();
+  
+  Serial.println("=============================================");
+  Serial.println("   SISTEM SENSOR URUTAN (SEQUENCE) AKTIF");
+  Serial.println("=============================================");
+  Serial.println("Siap mendeteksi gerakan...");
 }
 
 void loop() {
+  // Mesh butuh jalan terus di background
   mesh.update();
 }
