@@ -70,14 +70,9 @@ void InitCamera()
   // Init with high specs for detection
   if(psramFound())
   {
-    config.frame_size = FRAMESIZE_UXGA;
-    config.jpeg_quality = 10;
-    config.fb_count = 2;
-  } else 
-  {
-    config.frame_size = FRAMESIZE_SVGA;
+    config.frame_size = FRAMESIZE_VGA;
     config.jpeg_quality = 12;
-    config.fb_count = 1;
+    config.fb_count = 2;
   }
 
   // camera initialization
@@ -101,7 +96,6 @@ void InitCamera()
 }
 
 
-
 void HandleRoot() 
 {
   String html = "<!DOCTYPE html><html><head><meta name='viewport' content='width=device-width, initial-scale=1'>";
@@ -113,22 +107,23 @@ void HandleRoot()
   server.send(200, "text/html", html);
 }
 
-void HandleStream() 
+
+TaskHandle_t CameraCaptureTaskHandle = NULL;
+void CameraCapture() 
 {
   WiFiClient client = server.client();
   client.println("HTTP/1.1 200 OK");
   client.println("Content-Type: multipart/x-mixed-replace; boundary=frame");
   client.println();
-  
-  while (client.connected()) 
+
+  while (client.connected())
   {
     camera_fb_t * fb = esp_camera_fb_get();
     if (!fb) 
     {
       Serial.println("Camera capture failed");
-      break;
+      return;
     }
-    
     client.println("--frame");
     client.println("Content-Type: image/jpeg");
     client.print("Content-Length: ");
@@ -140,13 +135,16 @@ void HandleStream()
     esp_camera_fb_return(fb);
     
     if (!client.connected()) break;
+
+    delay(42);
   }
 }
+
 
 void InitWebServer() 
 {
   server.on("/", HandleRoot);
-  server.on("/stream", HandleStream);
+  server.on("/stream", CameraCapture);
   server.begin();
   Serial.println("Web server started");
   Serial.print("Camera stream available at: http://");
@@ -154,33 +152,11 @@ void InitWebServer()
 }
 
 
-
-TaskHandle_t CameraCaptureTaskHandle = NULL;
-void CameraCapture(void* parameters) 
-{
-  while (true)
-  {
-    camera_fb_t * fb = esp_camera_fb_get();
-    if (!fb) 
-    {
-      Serial.println("Camera capture failed");
-      return;
-    }
-    Serial.printf("Camera capture successful!\n");
-    Serial.printf("Frame size: %dx%d\n", fb->width, fb->height);
-    Serial.printf("Buffer length: %u bytes\n", fb->len);
-    Serial.printf("Format: %d\n", fb->format);
-    esp_camera_fb_return(fb);
-    vTaskDelay(pdTICKS_TO_MS(10000)); // 10 seconds delay
-  }
-}
-
-
-
 void setup() 
 {
   Serial.begin(115200);
   WiFi.softAP(ssid, password);
+  WiFi.setSleep(false);
   delay(2000);
 
   Serial.println("\n=== ESP32-CAM CAMERA VERIFICATION ===");
@@ -188,17 +164,8 @@ void setup()
   InitCamera();
   InitWebServer();
   Serial.println("=== VERIFICATION COMPLETE ===\n");
-
-  // xTaskCreatePinnedToCore(
-  //   CameraCapture,
-  //   "CameraCapture",
-  //   8192,
-  //   NULL,
-  //   1,
-  //   &CameraCaptureTaskHandle,
-  //   0
-  // );
 }
+
 
 void loop() 
 {
